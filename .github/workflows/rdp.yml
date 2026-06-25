@@ -1,0 +1,42 @@
+name: Windows RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable RDP and set password
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          net user runneradmin "${{ secrets.RDP_PASSWORD }}"
+          Write-Host "RDP enabled. Username: runneradmin"
+
+      - name: Download Cloudflared
+        shell: powershell
+        run: |
+          Invoke-WebRequest https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -OutFile cloudflared.exe
+
+      - name: Start Tunnel
+        shell: powershell
+        run: |
+          Start-Process -FilePath .\cloudflared.exe -ArgumentList "tunnel --url tcp://localhost:3389 --logfile cloudflared.log" -NoNewWindow
+          Start-Sleep -Seconds 25
+          Write-Host "================ CLOUDFLARE TUNNEL ADDRESS ================"
+          Select-String -Path cloudflared.log -Pattern "trycloudflare.com" | ForEach-Object { $_.Line }
+          Write-Host "=========================================================="
+          Write-Host "Username: runneradmin"
+          Write-Host "Password: (your RDP_PASSWORD secret)"
+          Write-Host "NOTE: to connect, on your PC run:"
+          Write-Host "   cloudflared.exe access tcp --hostname <THE-URL-ABOVE> --url localhost:3389"
+          Write-Host "   then RDP to  localhost:3389"
+
+      - name: Keep Alive
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 21600
