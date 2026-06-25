@@ -1,0 +1,66 @@
+name: windows-vps
+
+# Spins up a free CLOUD Windows machine (a GitHub Actions runner) that you can
+# RDP into over Tailscale. Trigger it manually from the Actions tab.
+#
+# The machine lives until the job ends (max ~6 hours) and is then DESTROYED --
+# nothing you save on it persists. Use short sessions; this is for testing/dev,
+# not a permanent server.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   TAILSCALE_AUTHKEY  - an auth key from https://login.tailscale.com/admin/settings/keys
+#                        (make it "Ephemeral" + "Reusable")
+#   RDP_PASSWORD       - the password you'll type in Remote Desktop (user: runneradmin)
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Minutes to keep the machine alive (max 350)"
+        required: true
+        default: "120"
+
+jobs:
+  windows-vps:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - name: Install Tailscale
+        shell: pwsh
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\tailscale.msi"
+          Start-Process msiexec.exe -ArgumentList "/i `"$env:TEMP\tailscale.msi`" /quiet /norestart" -Wait
+
+      - name: Connect Tailscale
+        shell: pwsh
+        run: |
+          $ts = "C:\Program Files\Tailscale\tailscale.exe"
+          & $ts up --authkey "${{ secrets.TAILSCALE_AUTHKEY }}" --hostname "gh-windows-vps" --unattended
+          Start-Sleep -Seconds 5
+          Write-Host ("Tailscale IP: " + (& $ts ip -4))
+
+      - name: Enable RDP and set password
+        shell: pwsh
+        run: |
+          $pw = "${{ secrets.RDP_PASSWORD }}"
+          net user runneradmin "$pw"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Write-Host "RDP enabled for user 'runneradmin'."
+
+      - name: Connection info + keep alive
+        shell: pwsh
+        run: |
+          $ts = "C:\Program Files\Tailscale\tailscale.exe"
+          $ip = (& $ts ip -4)
+          Write-Host "=================================================="
+          Write-Host " Remote Desktop connection:"
+          Write-Host "   Computer: $ip"
+          Write-Host "   Username: runneradmin"
+          Write-Host "   Password: <your RDP_PASSWORD secret>"
+          Write-Host "=================================================="
+          $minutes = [int]"${{ github.event.inputs.minutes }}"
+          if ($minutes -gt 350) { $minutes = 350 }
+          Write-Host "Keeping the machine alive for $minutes minutes..."
+          Start-Sleep -Seconds ($minutes * 60)
