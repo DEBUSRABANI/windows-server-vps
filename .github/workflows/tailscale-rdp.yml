@@ -1,0 +1,44 @@
+name: Windows Tailscale RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable Remote Desktop
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+          $password = "Password@123"
+          net user runneradmin $password
+
+          Write-Host "Username: runneradmin"
+          Write-Host "Password: $password"
+
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          winget install --id Tailscale.Tailscale -e --accept-source-agreements --accept-package-agreements
+
+      - name: Connect to Tailscale
+        shell: powershell
+        env:
+          TSKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        run: |
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=$env:TSKEY
+
+      - name: Show Tailscale IP
+        shell: powershell
+        run: |
+          & "C:\Program Files\Tailscale\tailscale.exe" ip
+
+      - name: Keep VM Alive
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 21600
